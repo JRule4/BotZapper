@@ -9,12 +9,38 @@ require "Unit"
 require "ChatChannelLib"
 require "ChatSystemLib"
 require "MessageManagerLib"
-require "PublicEvent"
 
 -----------------------------------------------------------------------------------------------
 -- BotZapper Module Definition
 -----------------------------------------------------------------------------------------------
 local BotZapper = {} 
+
+-----------------------------------------------------------------------------------------------
+-- Lua queue
+-----------------------------------------------------------------------------------------------
+List = {}
+function List:new ()
+  return {first = 0, last = -1}
+end
+
+function List:push (list, value)
+  local last = list.last + 1
+  list.last = last
+  list[last] = value
+end
+
+function List:pop (list)
+  local first = list.first
+  if first > list.last then error("list is empty") end
+  local value = list[first]
+  list[first] = nil        -- to allow garbage collection
+  list.first = first + 1
+  return value
+end
+
+function List:getLength (list)
+	return list.last - list.first + 1
+end
  
 -----------------------------------------------------------------------------------------------
 -- Constants
@@ -86,7 +112,7 @@ function BotZapper:Init()
 	self.botInfoQueue = List:new()
 	self.currentTime = GameLib.GetGameTime()
 	self.deltaTime = 0
-	self.enabled = true
+	self.enabled = false
 	
     Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)
 end
@@ -101,8 +127,9 @@ function BotZapper:OnLoad()
 	self.xmlDoc:RegisterCallback("OnDocLoaded", self)
 	
 	
-	Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
-	Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
+	--Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
+	--Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
+
 	Apollo.RegisterEventHandler("ChangeWorld",		"OnChangeWorld", self)
 	
 end
@@ -133,14 +160,19 @@ function BotZapper:OnDocLoaded()
 		Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
 		
 		updateTimer = ApolloTimer.Create(0.1, true, "OnTimerRefresh", self)
+		self:Disable()
 	end
 end
 
------------------------------------------------------------------------------------------------
--- Called when changing maps.
------------------------------------------------------------------------------------------------
-function BotZapper:OnChangeWorld()
+function BotZapper:Disable()
 
+	if self.enabled == false then
+		return
+	end
+	self.enabled = false		
+	Apollo.RemoveEventHandler("UnitCreated", self)		
+	Apollo.RemoveEventHandler("UnitDestroyed", self)
+	
 	-- Clear lists.
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
@@ -150,21 +182,33 @@ function BotZapper:OnChangeWorld()
 	self.wndMain:Close()
 	self.wndBotToast:Close()
 	self.wndReportRequest:Close()
-	
+end
+
+-----------------------------------------------------------------------------------------------
+-- Called when changing maps.
+-----------------------------------------------------------------------------------------------
+function BotZapper:OnChangeWorld()
+	self:Disable()		
+end
+
+function BotZapper:UpdateZone()
 	--Determine if we should run this addon or not.
 	local zoneInfo = GameLib.GetCurrentZoneMap()
-	GameLib.IsInWorldZone(zoneInfo.id)
-	if zoneInfo  == nil or GameLib.IsInWorldZone(zoneInfo.id) == false or zoneInfo.id == GameLib.MapZone.Illium or zoneInfo.id == GameLib.MapZone.Thayd then
-		self.enabled = false		
-		Apollo.RemoveEventHandler("UnitCreated", self)		
-		Apollo.RemoveEventHandler("UnitDestroyed", self)
-	else
+	
+	if zoneInfo == nil then
+		--if self.enabled == true then ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "ZoneInfo is Null") end
+		self:Disable()	
+	elseif zoneInfo.id == GameLib.MapZone.Illium or zoneInfo.id == GameLib.MapZone.Thayd then
+		--if self.enabled == true then ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "IsInTown is True") end
+		self:Disable()
+	elseif self.enabled == false then
+		--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "self.enabled = true")
 		self.enabled = true
 		Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
 		Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
 	end
-		
 end
+
 
 -----------------------------------------------------------------------------------------------
 -- Called when a unit is created. Setup basic info for UnitData.
@@ -343,6 +387,7 @@ end
 -----------------------------------------------------------------------------------------------
 function BotZapper:OnTimerRefresh()
 	
+	self:UpdateZone()
 	-- Update time first, so we can use it in the updates.
 	local currentTime = GameLib.GetGameTime()
 	self.deltaTime = currentTime - self.currentTime 
@@ -435,9 +480,9 @@ function BotZapper:AddGridUnit(grid, unit)
 	grid:SetCellText(rowIndex, 7, self:PositionString(unitPosition))
 		
 	--if unit:GetTarget() ~= nil then
-		grid:SetCellText(rowIndex, 8, unitData.speedInfractions)
+	--	grid:SetCellText(rowIndex, 8, unitData.speedInfractions)
 	--end
-	--grid:SetCellText(rowIndex, 8, GameLib.GetCurrentZoneMap().id)
+	grid:SetCellText(rowIndex, 8, GameLib.GetCurrentZoneMap().id)
 		
 end
 
@@ -735,30 +780,3 @@ end
 -----------------------------------------------------------------------------------------------
 local BotZapperInst = BotZapper:new()
 BotZapperInst:Init()
-
------------------------------------------------------------------------------------------------
--- Lua queue
------------------------------------------------------------------------------------------------
-List = {}
-function List:new ()
-  return {first = 0, last = -1}
-end
-
-function List:push (list, value)
-  local last = list.last + 1
-  list.last = last
-  list[last] = value
-end
-
-function List:pop (list)
-  local first = list.first
-  if first > list.last then error("list is empty") end
-  local value = list[first]
-  list[first] = nil        -- to allow garbage collection
-  list.first = first + 1
-  return value
-end
-
-function List:getLength (list)
-	return list.last - list.first + 1
-end
