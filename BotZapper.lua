@@ -571,7 +571,7 @@ function BotZapper:GetReportText(unit_ID)
 	reportText = reportText .."\nServer: ".. GameLib.GetRealmName()
 	
 	-- Top speed just for cheat info.
-	reportText = reportText .."\nTop Speed: ".. math.floor(watchUnit.topSpeed*100)/100
+	reportText = reportText .."\nTop Speed: ".. math.floor(watchUnit.topSpeed*100)/100 .. " units per second"
 	
 	-- Loop through our events and report our sightings.
 	for index, event in ipairs(watchUnit.events) do
