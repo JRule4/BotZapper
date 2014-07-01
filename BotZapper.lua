@@ -9,6 +9,7 @@ require "Unit"
 require "ChatChannelLib"
 require "ChatSystemLib"
 require "MessageManagerLib"
+require "PublicEvent"
 
 -----------------------------------------------------------------------------------------------
 -- BotZapper Module Definition
@@ -50,6 +51,9 @@ local infractionSpeed = 1.5
 local infractionLimit = 3
 local reportableSuspicion = 5
 local reinsertionTimer = 15
+
+local whiteColor = ApolloColor.new("white")
+local greenColor = ApolloColor.new("green")
 
 -- Class name table
 local tClasses = 	
@@ -146,6 +150,9 @@ function BotZapper:OnDocLoaded()
 		self.wndReportRequest = Apollo.LoadForm(self.xmlDoc, "ReportRequestForm", nil, self)
 		-- Toast form.
 		self.wndBotToast = Apollo.LoadForm(self.xmlDoc, "BotToastForm", nil, self)
+		
+		self.toastButton = self.wndBotToast:FindChild("Button")
+		
 		if self.wndMain == nil then
 			Apollo.AddAddonErrorText(self, "Could not load the main window for some reason.")
 			return
@@ -386,15 +393,19 @@ end
 -- Update "loop"
 -----------------------------------------------------------------------------------------------
 function BotZapper:OnTimerRefresh()
-	
+
 	self:UpdateZone()
 	-- Update time first, so we can use it in the updates.
 	local currentTime = GameLib.GetGameTime()
 	self.deltaTime = currentTime - self.currentTime 
 	self.currentTime = currentTime
 	
+	if self.wndBotToast:IsShown() then
+		self.toastButton:SetBGColor(self:LerpColor(whiteColor, greenColor, (math.sin(self.currentTime*5) + 1) / 2))
+	end
+	
 	local grid = self.wndMain:FindChild("Grid") -- DEBUG
-				
+
 	grid:DeleteAll() -- DEBUG
 
 	-- Loop through all nearbyUnits and update them so that we can generate info on them.
@@ -482,7 +493,7 @@ function BotZapper:AddGridUnit(grid, unit)
 	--if unit:GetTarget() ~= nil then
 	--	grid:SetCellText(rowIndex, 8, unitData.speedInfractions)
 	--end
-	grid:SetCellText(rowIndex, 8, GameLib.GetCurrentZoneMap().id)
+	grid:SetCellText(rowIndex, 8, (math.sin(self.currentTime) + 1) / 2)
 		
 end
 
@@ -527,8 +538,8 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 
 	-- Pop them from the queue
 	local unit_ID = List:pop(self.botInfoQueue)
-	--PlayerTicketDialog_Report(self.ticketType, self.ticketSubType, self:GetReportText(unit_ID))
-	ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID))-- DEBUG
+	PlayerTicketDialog_Report(self.ticketType, self.ticketSubType, self:GetReportText(unit_ID))
+	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
 	self.ignoredUnits[unit_ID] = { id = unit_ID }
@@ -593,10 +604,10 @@ function BotZapper:GetReportText(unit_ID)
 	
 	--Player information.
 	reportText = reportText .."Player: ".. watchUnit.name
-	reportText = reportText .."\nUnit ID: ".. watchUnit.unitID
+	reportText = reportText .."\nUnitID: ".. watchUnit.unitID
 	
 	--We can report if they have an authenticator or not.
-	reportText = reportText .."\nHas Authenticator: "
+	reportText = reportText .."\nAuthenticator: "
 	if watchUnit.events[0].buffs:find("Authentication Dividends") then
 		reportText = reportText .."True"
 	else
@@ -616,18 +627,21 @@ function BotZapper:GetReportText(unit_ID)
 	reportText = reportText .."\nServer: ".. GameLib.GetRealmName()
 	
 	-- Top speed just for cheat info.
-	reportText = reportText .."\nTop Speed: ".. math.floor(watchUnit.topSpeed*100)/100 .. " units per second"
+	reportText = reportText .."\nTop Speed: ".. math.floor(watchUnit.topSpeed*100)/100 .. " units/sec"
 	
 	-- Loop through our events and report our sightings.
 	for index, event in ipairs(watchUnit.events) do
 	
+		if index > 2 then
+			break
+		end
 		-- Info on each sighting.
-		reportText = reportText .."\n\n======= Witness Event #".. index .. " ======="
+		reportText = reportText .."\n\n== Event ".. index .. " =="
 		reportText = reportText .."\nTime: ".. event.time
 		reportText = reportText .."\nPosition: ".. event.position
 		reportText = reportText .."\nBuffs: ".. event.buffs
 		reportText = reportText .."\nDebuffs: ".. event.debuffs
-		reportText = reportText .."\nSaw Gathering: "
+		reportText = reportText .."\nGathering: "
 
 		if event.didHarvest then
 			reportText = reportText.."True"
@@ -635,6 +649,8 @@ function BotZapper:GetReportText(unit_ID)
 			reportText = reportText.."False"
 		end
 	end
+	
+	reportText = reportText .."\n\nReported by BotZapper"
 	
 	return reportText
 end
@@ -721,7 +737,7 @@ end
 -----------------------------------------------------------------------------------------------
 function BotZapper:PositionString(position)
 	-- Returns an easy to read position string.
-	return "X: "..math.floor(position.x).." | Y: "..math.floor(position.y).." | Z: "..math.floor(position.z)
+	return "X:"..math.floor(position.x).."|Y:"..math.floor(position.y).."|Z:"..math.floor(position.z)
 end
 
 -----------------------------------------------------------------------------------------------
@@ -759,7 +775,14 @@ function BotZapper:IsGathering(unit)
 end
 
 -----------------------------------------------------------------------------------------------
--- Returns a given table's lengt
+-- Interpolate between two colors
+-----------------------------------------------------------------------------------------------
+function BotZapper:LerpColor(colorA, colorB, t)
+	return ApolloColor.new(colorA.r + (colorB.r - colorA.r) * t, colorA.g + (colorB.g - colorA.g) * t, colorA.b + (colorB.b - colorA.b) * t)
+end
+
+-----------------------------------------------------------------------------------------------
+-- Returns a given table's length
 ------------------------------------------------------------------------------------------------
 function BotZapper:TableLength(tArray)
 	
