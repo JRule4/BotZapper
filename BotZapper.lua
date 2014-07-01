@@ -132,7 +132,7 @@ function BotZapper:OnDocLoaded()
 		--end
 		
 		-- Hide all windows by default.
-	    self.wndMain:Show(false, true)
+	    --self.wndMain:Show(false, true)
 		self.wndReportRequest:Show(false, true)
 		self.wndBotToast:Show(false, true)
 
@@ -159,7 +159,7 @@ function BotZapper:Disable()
 	self.reportableBotTable = {}
 		
 	-- Close windows.
-	self.wndMain:Close()
+	--self.wndMain:Close()
 	self.wndBotToast:Close()
 	self.wndReportRequest:Close()
 end
