@@ -15,33 +15,6 @@ require "PublicEvent"
 -- BotZapper Module Definition
 -----------------------------------------------------------------------------------------------
 local BotZapper = {} 
-
------------------------------------------------------------------------------------------------
--- Lua queue
------------------------------------------------------------------------------------------------
-List = {}
-function List:new ()
-  return {first = 0, last = -1}
-end
-
-function List:push (list, value)
-  local last = list.last + 1
-  list.last = last
-  list[last] = value
-end
-
-function List:pop (list)
-  local first = list.first
-  if first > list.last then error("list is empty") end
-  local value = list[first]
-  list[first] = nil        -- to allow garbage collection
-  list.first = first + 1
-  return value
-end
-
-function List:getLength (list)
-	return list.last - list.first + 1
-end
  
 -----------------------------------------------------------------------------------------------
 -- Constants
@@ -113,7 +86,7 @@ function BotZapper:Init()
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
 	self.ignoredUnits = {}
-	self.botInfoQueue = List:new()
+	self.reportableBotTable = {}
 	self.currentTime = GameLib.GetGameTime()
 	self.deltaTime = 0
 	self.enabled = false
@@ -145,7 +118,7 @@ function BotZapper:OnDocLoaded()
 
 	if self.xmlDoc ~= nil and self.xmlDoc:IsLoaded() then
 		-- Debug form.
-	    self.wndMain = Apollo.LoadForm(self.xmlDoc, "BotZapperForm", nil, self)
+	    --self.wndMain = Apollo.LoadForm(self.xmlDoc, "BotZapperForm", nil, self)
 		-- Report request form.
 		self.wndReportRequest = Apollo.LoadForm(self.xmlDoc, "ReportRequestForm", nil, self)
 		-- Toast form.
@@ -153,10 +126,10 @@ function BotZapper:OnDocLoaded()
 		
 		self.toastButton = self.wndBotToast:FindChild("Button")
 		
-		if self.wndMain == nil then
-			Apollo.AddAddonErrorText(self, "Could not load the main window for some reason.")
-			return
-		end
+		--if self.wndMain == nil then
+		--	Apollo.AddAddonErrorText(self, "Could not load the main window for some reason.")
+		--	return
+		--end
 		
 		-- Hide all windows by default.
 	    self.wndMain:Show(false, true)
@@ -164,7 +137,7 @@ function BotZapper:OnDocLoaded()
 		self.wndBotToast:Show(false, true)
 
 		-- Debug access.
-		Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
+		--Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
 		
 		updateTimer = ApolloTimer.Create(0.1, true, "OnTimerRefresh", self)
 		self:Disable()
@@ -183,8 +156,8 @@ function BotZapper:Disable()
 	-- Clear lists.
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
-	self.botInfoQueue = List:new()
-	
+	self.reportableBotTable = {}
+		
 	-- Close windows.
 	self.wndMain:Close()
 	self.wndBotToast:Close()
@@ -372,15 +345,20 @@ function BotZapper:OnUnitDestroyed(unit)
 		if self.watchedUnits[unit_ID].suspicion >= reportableSuspicion then
 		
 			 -- DEBUG
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName())-- .. "=============================", "BotZapper")
-			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " Buffs = "..self:GetBuffNames(unit:GetBuffs().arBeneficial), "BotZapper" )
-			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " topSpeed = "..unitData.topSpeed, "BotZapper" )
-			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " speedInfractions = "..unitData.speedInfractions, "BotZapper" )	
+			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. "=============================", "BotZapper")
+			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " Buffs = "..self:GetBuffNames(unit:GetBuffs().arBeneficial), "BotZapper" )
+			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " topSpeed = "..unitData.topSpeed, "BotZapper" )
+			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " speedInfractions = "..unitData.speedInfractions, "BotZapper" )	
 			-- DEBUG	
 		
-			--Add them to the botQueue and popup a toast for the player.
-			List:push(self.botInfoQueue, unit_ID)
-			self.wndBotToast:Invoke()
+			--Add them to the table
+			if self.reportableBotTable[unit_ID] == nil then
+				self.reportableBotTable[unit_ID] = self.currentTime
+			end
+			--popup a toast for the player if another menu isn't already up.
+			if self.wndReportRequest:IsShown() == false then
+				self.wndBotToast:Invoke()
+			end
 		end
 		
 	end
@@ -404,15 +382,15 @@ function BotZapper:OnTimerRefresh()
 		self.toastButton:SetBGColor(self:LerpColor(whiteColor, greenColor, (math.sin(self.currentTime*5) + 1) / 2))
 	end
 	
-	local grid = self.wndMain:FindChild("Grid") -- DEBUG
+	--local grid = self.wndMain:FindChild("Grid") -- DEBUG
 
-	grid:DeleteAll() -- DEBUG
+	--grid:DeleteAll() -- DEBUG
 
 	-- Loop through all nearbyUnits and update them so that we can generate info on them.
 	for index,unitData in pairs(self.nearbyUnits) do
 		local unit = GameLib.GetUnitById(index)
 		if unit ~= nil then
-			self:AddGridUnit(grid, unit) -- DEBUG
+			--self:AddGridUnit(grid, unit) -- DEBUG
 			self:UpdateUnit(unit)
 		end
 	end
@@ -497,7 +475,7 @@ function BotZapper:AddGridUnit(grid, unit)
 		
 end
 
------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------
 -- on SlashCommand "/bz" DEBUG
 -----------------------------------------------------------------------------------------------
 function BotZapper:OnBotZapperOn()
@@ -536,8 +514,13 @@ end
 ---------------------------------------------------------------------------------------------------
 function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton )
 
-	-- Pop them from the queue
-	local unit_ID = List:pop(self.botInfoQueue)
+	-- Grab the oldest one
+	local unit_ID = self:GetFirstReportableBot()
+	
+	if unit_ID == -1 then
+		return
+	end
+	
 	PlayerTicketDialog_Report(self.ticketType, self.ticketSubType, self:GetReportText(unit_ID))
 	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID))-- DEBUG
 	
@@ -545,10 +528,11 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	self.ignoredUnits[unit_ID] = { id = unit_ID }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
+	self.reportableBotTable[unit_ID] = nil
 	self.wndReportRequest:Close()
 	
-	-- If we have more in queue, push them up.
-	if List:getLength(self.botInfoQueue) > 0 then
+	-- If we have more in the table, popup a new window.
+	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
 
@@ -556,21 +540,26 @@ end
 
 ---------------------------------------------------------------------------------------------------
 -- Handles the ignore button in the report request screen. 
--- Removes the unit from the queue, adds them to the ignore table. and moves to the next.
+-- Removes the unit from the reportable bot table, adds them to the ignore table. and moves to the next.
 ---------------------------------------------------------------------------------------------------
 function BotZapper:OnIgnoreUnitButton( wndHandler, wndControl, eMouseButton )
 
-	-- Pop them from the queue, but do nothing with it other than table work.
-	local unit_ID = List:pop(self.botInfoQueue)
+	-- Grab the oldest one
+	local unit_ID = self:GetFirstReportableBot()
 	
+	if unit_ID == -1 then
+		return
+	end
+		
 	-- Add them to the ignored units. Clear them out from any other tables.
 	self.ignoredUnits[unit_ID] = { id = unit_ID }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
+	self.reportableBotTable[unit_ID] = nil
 	self.wndReportRequest:Close()
 	
-	-- If we have more in queue, push them up.
-	if List:getLength(self.botInfoQueue) > 0 then
+	-- If we have more in the table, popup a new window.
+	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
 	
@@ -578,19 +567,24 @@ end
 
 ---------------------------------------------------------------------------------------------------
 -- Handles the "Gather more info" button in the report request.
--- Removes the unit from the queue, and moves to the next. 
+-- Removes the unit from the reportable bot table, and moves to the next. 
 -- The unit will pop up a dialogue again when it it seen next time.
 ---------------------------------------------------------------------------------------------------
 function BotZapper:OnWaitReportButton( wndHandler, wndControl, eMouseButton )
 	
-	-- Pop them from the queue, so that they're added back to the end next time. 
-	-- Do nothing with the return.
-	List:pop(self.botInfoQueue)
+	-- Grab the oldest one
+	local unit_ID = self:GetFirstReportableBot()
+	
+	if unit_ID == -1 then
+		return
+	end
+	
+	self.reportableBotTable[unit_ID] = nil
 	
 	self.wndReportRequest:Close()
 		
-	-- If we have more in queue, push them up.
-	if List:getLength(self.botInfoQueue) > 0 then
+	-- If we have more in the table, popup a new window.
+	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
 end
@@ -655,13 +649,22 @@ function BotZapper:GetReportText(unit_ID)
 	return reportText
 end
 
+function BotZapper:GetFirstReportableBot()
+	for key,value in spairs(self.reportableBotTable, function(t,a,b) return t[b] > t[a] end) do
+		return key
+	end
+	
+	return -1
+end
+
+
 ---------------------------------------------------------------------------------------------------
 -- Handles the View bot info button. Opens the report request window with more information.
 ---------------------------------------------------------------------------------------------------
 function BotZapper:OnViewBotInfo( wndHandler, wndControl, eMouseButton )
 	-- Open up more info.
 	self.wndBotToast:Close()
-	self:RequestReport(self.botInfoQueue[self.botInfoQueue.first])
+	self:RequestReport(self:GetFirstReportableBot())
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -783,7 +786,7 @@ end
 
 -----------------------------------------------------------------------------------------------
 -- Returns a given table's length
-------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------
 function BotZapper:TableLength(tArray)
 	
 	if tArray == nil then
@@ -796,6 +799,33 @@ function BotZapper:TableLength(tArray)
 	end
 	return nCount
 	
+end
+
+-----------------------------------------------------------------------------------------------
+-- Use for sorting tables.
+-- Returns an interator sorted by the function
+-----------------------------------------------------------------------------------------------
+function spairs(t, order)
+    -- collect the keys
+    local keys = {}
+    for k in pairs(t) do keys[#keys+1] = k end
+
+    -- if order function given, sort by it by passing the table and keys a, b,
+    -- otherwise just sort the keys 
+    if order then
+        table.sort(keys, function(a,b) return order(t, a, b) end)
+    else
+        table.sort(keys)
+    end
+
+    -- return the iterator function
+    local i = 0
+    return function()
+        i = i + 1
+        if keys[i] then
+            return keys[i], t[keys[i]]
+        end
+    end
 end
 
 -----------------------------------------------------------------------------------------------
