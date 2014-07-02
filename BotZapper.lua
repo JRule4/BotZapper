@@ -54,7 +54,7 @@ local tZoneLimit =
 	[75]			 					= { level = 29 }, --Farside Biodome 4
 	[28]			 					= { level = 32 }, --Farside Moon
 	[GameLib.MapZone.Wilderrun] 		= { level = 35 },
-	[GameLib.MapZone.Whitevale] 		= { level = 40 },
+	[GameLib.MapZone.Malgrave] 			= { level = 40 },
 	[GameLib.MapZone.Grimvault] 		= { level = 46 },
 	[GameLib.MapZone.WesternGrimvault] 	= { level = 46 },
 }
