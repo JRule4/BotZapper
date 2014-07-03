@@ -20,8 +20,8 @@ local BotZapper = {}
 -- Constants
 -----------------------------------------------------------------------------------------------
 local updateTimer = nil
-local infractionSpeed = 1.5
-local infractionLimit = 3
+local infractionSpeed = 150
+local infractionLimit = 4
 local reportableSuspicion = 5
 local reinsertionTimer = 15
 
@@ -31,33 +31,59 @@ local greenColor = ApolloColor.new("green")
 -- Class name table
 local tClasses = 	
 { 
-	[GameLib.CodeEnumClass.Warrior]      = { name = Apollo.GetString("ClassWarrior"), },
-	[GameLib.CodeEnumClass.Engineer]     = { name = Apollo.GetString("ClassEngineer"), },
-	[GameLib.CodeEnumClass.Esper]        = { name = Apollo.GetString("ClassESPER"), },
-	[GameLib.CodeEnumClass.Medic]        = { name = Apollo.GetString("ClassMedic"), },
-	[GameLib.CodeEnumClass.Stalker]      = { name = Apollo.GetString("ClassStalker"), },
-	[GameLib.CodeEnumClass.Spellslinger] = { name = Apollo.GetString("ClassSpellslinger"), },
+	[GameLib.CodeEnumClass.Warrior]      = Apollo.GetString("ClassWarrior"),
+	[GameLib.CodeEnumClass.Engineer]     = Apollo.GetString("ClassEngineer"),
+	[GameLib.CodeEnumClass.Esper]        = Apollo.GetString("ClassESPER"),
+	[GameLib.CodeEnumClass.Medic]        = Apollo.GetString("ClassMedic"),
+	[GameLib.CodeEnumClass.Stalker]      = Apollo.GetString("ClassStalker"),
+	[GameLib.CodeEnumClass.Spellslinger] = Apollo.GetString("ClassSpellslinger"),
 } 
 
 -- Faction name table
 local tFactions =
 {
-	[Unit.CodeEnumFaction.DominionPlayer] 	= { name = "Dominion", },
-	[Unit.CodeEnumFaction.ExilesPlayer] 	= { name = "Exile", },
+	[Unit.CodeEnumFaction.DominionPlayer] 	= "Dominion",
+	[Unit.CodeEnumFaction.ExilesPlayer] 	= "Exile",
 }
 
 -- Zone level limits for determining if a player is underleveled
 local tZoneLimit = 
 {
-	[GameLib.MapZone.Whitevale] 		= { level = 22 },
-	[75]			 					= { level = 29 }, --Farside Biodome 3
-	[75]			 					= { level = 29 }, --Farside Biodome 4
-	[28]			 					= { level = 32 }, --Farside Moon
-	[GameLib.MapZone.Wilderrun] 		= { level = 35 },
-	[GameLib.MapZone.Whitevale] 		= { level = 40 },
-	[GameLib.MapZone.Grimvault] 		= { level = 46 },
-	[GameLib.MapZone.WesternGrimvault] 	= { level = 46 },
+	[GameLib.MapZone.Whitevale] 		= 22,
+	[75]			 					= 29, --Farside Biodome 3
+	[75]			 					= 29, --Farside Biodome 4
+	[28]			 					= 32, --Farside Moon
+	[GameLib.MapZone.Wilderrun] 		= 35,
+	[GameLib.MapZone.Malgrave] 			= 40,
+	[GameLib.MapZone.Grimvault] 		= 46,
+	[GameLib.MapZone.WesternGrimvault] 	= 46,
+	[GameLib.MapZone.NorthernGrimvault] = 50,
 }
+
+local tPickAxeName =
+{
+	["EN"] = "Laser Pickaxe",
+	["DE"] = "Laserspitzhacke",
+	["FR"] = "Extracto-laser",
+}
+
+local tChainsawName =
+{
+	["EN"] = "Laser Chainsaw",
+	["DE"] = "Lasersäge",
+	["FR"] = "Tronçonneuse-laser",
+}
+
+local tRelicBlasterName =
+{
+	["EN"] = "Relic Blaster",
+	["DE"] = "Reliktblaster",
+	["FR"] = "Extracteur de reliques",
+}
+
+local ticketTypeText = Apollo.GetString(77542) --"Report Player"
+local ticketSubTypeText = Apollo.GetString(77548) --"Bot / Cheater"
+local harvestText = Apollo.GetString(4440) --"Harvest"
 
 -----------------------------------------------------------------------------------------------
 -- Initialization
@@ -89,9 +115,16 @@ function BotZapper:Init()
 	self.reportableBotTable = {}
 	self.currentTime = GameLib.GetGameTime()
 	self.deltaTime = 0
-	self.enabled = false
+	self.enabled = true
+	self.reportDisplayID = -1
 	
-    Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)
+	self.currentLanguage= GetClientLanguage()
+		
+	
+    Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)	
+	
+	Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
+	Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
 end
 
 -----------------------------------------------------------------------------------------------
@@ -102,10 +135,7 @@ function BotZapper:OnLoad()
     -- load our form file
 	self.xmlDoc = XmlDoc.CreateFromFile("BotZapper.xml")
 	self.xmlDoc:RegisterCallback("OnDocLoaded", self)
-	
-	
-	--Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
-	--Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
+
 
 	Apollo.RegisterEventHandler("ChangeWorld",		"OnChangeWorld", self)
 	
@@ -117,30 +147,34 @@ end
 function BotZapper:OnDocLoaded()
 
 	if self.xmlDoc ~= nil and self.xmlDoc:IsLoaded() then
-		-- Debug form.
-	    --self.wndMain = Apollo.LoadForm(self.xmlDoc, "BotZapperForm", nil, self)
 		-- Report request form.
 		self.wndReportRequest = Apollo.LoadForm(self.xmlDoc, "ReportRequestForm", nil, self)
 		-- Toast form.
 		self.wndBotToast = Apollo.LoadForm(self.xmlDoc, "BotToastForm", nil, self)
 		
+		self.wndInfo = Apollo.LoadForm(self.xmlDoc, "BotZapperInfo", nil, self)
+		
 		self.toastButton = self.wndBotToast:FindChild("Button")
 		
-		--if self.wndMain == nil then
-		--	Apollo.AddAddonErrorText(self, "Could not load the main window for some reason.")
-		--	return
-		--end
+		self.infoTextBox = self.wndReportRequest:FindChild("InfoBox")
+		
+		self.nearbyGrid = self.wndInfo:FindChild("NearbyGrid")
+		self.watchGrid = self.wndInfo:FindChild("WatchGrid")
+		self.ignoredGrid = self.wndInfo:FindChild("IgnoredGrid")
+		
+		self.nearbyButton = self.wndInfo:FindChild("NearbyButton")
+		self.watchingButton = self.wndInfo:FindChild("WatchingButton")
+		self.ignoredButton = self.wndInfo:FindChild("IgnoredButton")
 		
 		-- Hide all windows by default.
-	    --self.wndMain:Show(false, true)
 		self.wndReportRequest:Show(false, true)
 		self.wndBotToast:Show(false, true)
+		self.wndInfo:Show(false, true)
 
 		-- Debug access.
-		--Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
+		Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
 		
-		updateTimer = ApolloTimer.Create(0.1, true, "OnTimerRefresh", self)
-		self:Disable()
+		updateTimer = ApolloTimer.Create(.1, true, "OnTimerRefresh", self)
 	end
 end
 
@@ -157,11 +191,16 @@ function BotZapper:Disable()
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
 	self.reportableBotTable = {}
+	
+	-- Clear grids
+	self.nearbyGrid:DeleteAll()
+	self.watchGrid:DeleteAll()
+	self.ignoredGrid:DeleteAll()
 		
 	-- Close windows.
-	--self.wndMain:Close()
 	self.wndBotToast:Close()
 	self.wndReportRequest:Close()
+	self.wndInfo:Close()
 end
 
 -----------------------------------------------------------------------------------------------
@@ -196,7 +235,7 @@ end
 function BotZapper:OnUnitCreated(unit)
 
 	-- We only want to run on player units if we are enabled.
-	if self.enabled and unit:GetType() ~= "Player" then
+	if self.enabled == false or unit:GetType() ~= "Player" then
 		return
 	end	
 	
@@ -209,10 +248,15 @@ function BotZapper:OnUnitCreated(unit)
 	
 	-- Automatically add friends and groupmembers to the ignore list.
 	if unit:IsAccountFriend() or unit:IsFriend() or unit:IsInYourGroup() then
-		self.ignoredUnits[unit_ID] = { id = unit_ID }
+		self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Friend" }
 		return
+	end	
+	
+	if self.nearbyGrid ~= nil then
+		self.nearbyGrid:AddRow(unit:GetName(), "", unit_ID)
 	end
 
+		
 	-- Setup basic data for a new unit.
 	self.nearbyUnits[unit_ID] = {
 									lastPos = unit:GetPosition(),
@@ -220,8 +264,9 @@ function BotZapper:OnUnitCreated(unit)
 									speedInfractions = 0,
 									topSpeed = 0,
 									harvestCount = 0,
+									speed = 0,
+									totalDistance = 0
 								}
-
 end
 
 -----------------------------------------------------------------------------------------------
@@ -230,11 +275,13 @@ end
 function BotZapper:OnUnitDestroyed(unit)
 	
 	-- We only want to run on player units if we are enabled.
-	if self.enabled and unit:GetType() ~= "Player" then
+	if self.enabled == false or unit:GetType() ~= "Player" then
 		return
 	end	
 	
 	local unit_ID = unit:GetId()
+	
+	self.nearbyGrid:DeleteRowsByData(unit_ID)
 	
 	-- If they exist in the ignore table, ignore them.
 	if self.ignoredUnits[unit_ID] ~= nil then
@@ -270,7 +317,7 @@ function BotZapper:OnUnitDestroyed(unit)
 		end
 		
 		-- If the player is outside of the level range, they're super suspicious. 
-		if tZoneLimit[GameLib.GetCurrentZoneMap().id] ~= nil and (tZoneLimit[GameLib.GetCurrentZoneMap().id].level - unit:GetLevel()) >= 5 then
+		if tZoneLimit[GameLib.GetCurrentZoneMap().id] ~= nil and (tZoneLimit[GameLib.GetCurrentZoneMap().id] - unit:GetLevel()) >= 5 then
 			suspicionLevel = suspicionLevel + 2
 			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Underleveld for the zone, added suspicion "..unit:GetLevel())-- DEBUG
 		end
@@ -296,8 +343,8 @@ function BotZapper:OnUnitDestroyed(unit)
 			{
 				name = unit:GetName(),
 				level = unit:GetLevel(),
-				faction = tFactions[unit:GetFaction()].name,
-				class = tClasses[unit:GetClassId()].name,
+				faction = tFactions[unit:GetFaction()],
+				class = tClasses[unit:GetClassId()],
 				zone = GameLib.GetCurrentZoneMap().strName,
 				suspicion = suspicionLevel,
 				unitID = unit:GetId(),
@@ -309,9 +356,9 @@ function BotZapper:OnUnitDestroyed(unit)
 				-- If we can't generate enough suspicion to report within one "seeing" of a unit, we'll keep multiple.
 				events = 
 				{
-					[0] = 	{
+					[1] = 	{
 								time = os.date("!%c").." UTC",
-								position = self:PositionString(unit:GetPosition()),
+								position = PositionString(unit:GetPosition()),
 								buffs = self:GetBuffNames(unit:GetBuffs().arBeneficial),
 								debuffs = self:GetBuffNames(unit:GetBuffs().arHarmful),
 								didHarvest = unitData.harvestCount > 0
@@ -327,15 +374,15 @@ function BotZapper:OnUnitDestroyed(unit)
 			
 			watchUnit.speedInfractions = watchUnit.speedInfractions + unitData.speedInfractions
 			watchUnit.topSpeed = math.max(watchUnit.topSpeed, unitData.topSpeed)
+			watchUnit.eventCount = watchUnit.eventCount + 1
 			watchUnit.events[watchUnit.eventCount] = 	
 			{
 				time = os.date("!%c").." UTC",
-				position = self:PositionString(unit:GetPosition()),
+				position = PositionString(unit:GetPosition()),
 				buffs = self:GetBuffNames(unit:GetBuffs().arBeneficial),
 				debuffs = self:GetBuffNames(unit:GetBuffs().arHarmful),
 				didHarvest = unitData.harvestCount > 0,					
 			}
-			watchUnit.eventCount = watchUnit.eventCount + 1
 		
 		end
 	
@@ -345,7 +392,7 @@ function BotZapper:OnUnitDestroyed(unit)
 		if self.watchedUnits[unit_ID].suspicion >= reportableSuspicion then
 		
 			 -- DEBUG
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. "=============================", "BotZapper")
+			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. "========", "BotZapper")
 			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " Buffs = "..self:GetBuffNames(unit:GetBuffs().arBeneficial), "BotZapper" )
 			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " topSpeed = "..unitData.topSpeed, "BotZapper" )
 			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " speedInfractions = "..unitData.speedInfractions, "BotZapper" )	
@@ -358,8 +405,10 @@ function BotZapper:OnUnitDestroyed(unit)
 			--popup a toast for the player if another menu isn't already up.
 			if self.wndReportRequest:IsShown() == false then
 				self.wndBotToast:Invoke()
-			end
+			end			
 		end
+		
+		self:UpdateWatchedUnitInfo(unit_ID)
 		
 	end
 	
@@ -379,18 +428,13 @@ function BotZapper:OnTimerRefresh()
 	self.currentTime = currentTime
 	
 	if self.wndBotToast:IsShown() then
-		self.toastButton:SetBGColor(self:LerpColor(whiteColor, greenColor, (math.sin(self.currentTime*5) + 1) / 2))
+		self.toastButton:SetBGColor(LerpColor(whiteColor, greenColor, (math.sin(self.currentTime*5) + 1) / 2))
 	end
-	
-	--local grid = self.wndMain:FindChild("Grid") -- DEBUG
-
-	--grid:DeleteAll() -- DEBUG
 
 	-- Loop through all nearbyUnits and update them so that we can generate info on them.
 	for index,unitData in pairs(self.nearbyUnits) do
 		local unit = GameLib.GetUnitById(index)
 		if unit ~= nil then
-			--self:AddGridUnit(grid, unit) -- DEBUG
 			self:UpdateUnit(unit)
 		end
 	end
@@ -401,7 +445,8 @@ end
 -----------------------------------------------------------------------------------------------
 function BotZapper:UpdateUnit(unit)
 
-	local unitData = self.nearbyUnits[unit:GetId()]	
+	local unit_ID = unit:GetId()
+	local unitData = self.nearbyUnits[unit_ID]	
 	
 	-- We want to remove and re-add a player occasionally.
 	-- If you're around a player for long enough, they may trigger speed traps too many times.
@@ -415,12 +460,15 @@ function BotZapper:UpdateUnit(unit)
 	local unitPosition = unit:GetPosition()
 	
 	-- Ignore mounted units... What bots use mounts? Zero.
-	if unit:IsMounted() == false then
-		local speed = self:VectorDistance(unitData.lastPos, unitPosition)
-		
-		if speed * self.deltaTime > infractionSpeed then
+	--if unit:IsMounted() == false then
+		local distance = VectorDistance(unitData.lastPos, unitPosition)
+		unitData.speed = distance / self.deltaTime
+		unitData.totalDistance = unitData.totalDistance + distance
+		unitData.topSpeed = math.max(unitData.topSpeed, unitData.speed)
+
+		if unitData.speed > infractionSpeed then
 			unitData.speedInfractions = unitData.speedInfractions + 1
-			unitData.topSpeed = math.max(unitData.topSpeed, speed)
+									
 			--unit:ShowHintArrow()
 		end
 		
@@ -429,71 +477,24 @@ function BotZapper:UpdateUnit(unit)
 			unitData.harvestCount = unitData.harvestCount + 1
 		end
 		
-	end
+	--end
 
 	-- Update positional data for next update.
-	self.nearbyUnits[unit:GetId()].lastPos = unitPosition;
-	self.nearbyUnits[unit:GetId()].lastPosTime = self.currentTime;
-
-end
-
------------------------------------------------------------------------------------------------
--- Adds grid info for debugging. - DEBUG
------------------------------------------------------------------------------------------------
-function BotZapper:AddGridUnit(grid, unit)
-
-	local unitData = self.nearbyUnits[unit:GetId()]
-	local unitPosition = unit:GetPosition()
-	local rowIndex = grid:AddRow("")
-	
-	grid:SetCellText(rowIndex, 1, unit:GetName())
-	if tClasses[unit:GetClassId()] ~= nil then
-		grid:SetCellText(rowIndex, 2, tClasses[unit:GetClassId()].name)
-	end
-	if unit:GetLevel() ~= nil then
-		grid:SetCellText(rowIndex, 3, unit:GetLevel())
-	end
-	if unit:GetAffiliationName() ~= nil then
-		grid:SetCellText(rowIndex, 4, unit:GetAffiliationName())
-	end
-	
-	local speed = self:VectorDistance(unitData.lastPos, unitPosition) * self.deltaTime
-	grid:SetCellText(rowIndex, 5, speed)
-	
-	if tFactions[unit:GetFaction()] ~= nil then
-		grid:SetCellText(rowIndex, 6, tFactions[unit:GetFaction()].name)
-	end
-	--grid:SetCellText(rowIndex, 6, self.currentTime - unitData.creationTime)
-	
-	local unitPosition = unit:GetPosition()
-	grid:SetCellText(rowIndex, 7, self:PositionString(unitPosition))
-		
-	--if unit:GetTarget() ~= nil then
-	--	grid:SetCellText(rowIndex, 8, unitData.speedInfractions)
-	--end
-	grid:SetCellText(rowIndex, 8, (math.sin(self.currentTime) + 1) / 2)
-		
+	self.nearbyUnits[unit_ID].lastPos = unitPosition;
+	self.nearbyUnits[unit_ID].lastPosTime = self.currentTime;
+	self:UpdateNearbyUnitInfo(unit_ID)
 end
 
 ---------------------------------------------------------------------------
--- on SlashCommand "/bz" DEBUG
+-- on SlashCommand "/bz"
 -----------------------------------------------------------------------------------------------
 function BotZapper:OnBotZapperOn()
-	self.wndMain:Invoke() -- show the window
-end
+	self.wndInfo:Invoke()
+	self:OnDisplayNearby()
 
------------------------------------------------------------------------------------------------
--- when the OK button is clicked - DEBUG
------------------------------------------------------------------------------------------------
-function BotZapper:OnOK()
-	self.wndMain:Close() -- hide the window
-end
-
------------------------------------------------------------------------------------------------
--- when the Cancel button is clicked - DEBUG
------------------------------------------------------------------------------------------------
-function BotZapper:OnCancel()
-	self.wndMain:Close() -- hide the window
+	self.nearbyButton:SetCheck(true)
+	self.watchingButton:SetCheck(false)
+	self.ignoredButton:SetCheck(false)
 end
 
 -----------------------------------------------------------------------------------------------
@@ -502,8 +503,8 @@ end
 function BotZapper:RequestReport(unit_ID)
 	
 	--Open up the request report screen and fill out the text.
-	local infoBox = self.wndReportRequest:FindChild("InfoBox")
-	infoBox:SetText(self:GetReportText(unit_ID))
+	self.infoTextBox:SetText(self:GetReportText(unit_ID))
+	self.reportDisplayID = unit_ID
 	
 	self.wndReportRequest:Invoke()
 	
@@ -515,9 +516,10 @@ end
 function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton )
 
 	-- Grab the oldest one
-	local unit_ID = self:GetFirstReportableBot()
+	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		self.wndReportRequest:Close()
 		return
 	end
 	
@@ -525,16 +527,21 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { id = unit_ID }
+	self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Reported" }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
+	self.nearbyGrid:DeleteRowsByData(unit_ID)
+	self.watchGrid:DeleteRowsByData(unit_ID)
+	self:UpdateIgnoredInfo(unit_ID)
 	self.wndReportRequest:Close()
 	
 	-- If we have more in the table, popup a new window.
 	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
+	
+	self.reportDisplayID = -1
 
 end
 
@@ -545,23 +552,29 @@ end
 function BotZapper:OnIgnoreUnitButton( wndHandler, wndControl, eMouseButton )
 
 	-- Grab the oldest one
-	local unit_ID = self:GetFirstReportableBot()
+	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		self.wndReportRequest:Close()
 		return
 	end
 		
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { id = unit_ID }
+	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Ignored" }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
+	self.nearbyGrid:DeleteRowsByData(unit_ID)
+	self.watchGrid:DeleteRowsByData(unit_ID)
+	self:UpdateIgnoredInfo(unit_ID)
 	self.wndReportRequest:Close()
 	
 	-- If we have more in the table, popup a new window.
 	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
+	
+	self.reportDisplayID = -1
 	
 end
 
@@ -573,9 +586,10 @@ end
 function BotZapper:OnWaitReportButton( wndHandler, wndControl, eMouseButton )
 	
 	-- Grab the oldest one
-	local unit_ID = self:GetFirstReportableBot()
+	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		self.wndReportRequest:Close()
 		return
 	end
 	
@@ -602,7 +616,7 @@ function BotZapper:GetReportText(unit_ID)
 	
 	--We can report if they have an authenticator or not.
 	reportText = reportText .."\nAuthenticator: "
-	if watchUnit.events[0].buffs:find("Authentication Dividends") then
+	if watchUnit.events[1].buffs:find("Authentication Dividends") then
 		reportText = reportText .."True"
 	else
 		reportText = reportText .."False"
@@ -610,7 +624,7 @@ function BotZapper:GetReportText(unit_ID)
 	
 	--We report if they're underleveled for the zone.
 	reportText = reportText .."\nLevel: ".. watchUnit.level
-	if tZoneLimit[GameLib.GetCurrentZoneMap().id] ~= nil and (tZoneLimit[GameLib.GetCurrentZoneMap().id].level - watchUnit.level) > 5 then
+	if tZoneLimit[GameLib.GetCurrentZoneMap().id] ~= nil and (tZoneLimit[GameLib.GetCurrentZoneMap().id] - watchUnit.level) > 5 then
 		reportText = reportText .." (underleveled for this zone)"
 	end
 	
@@ -626,9 +640,9 @@ function BotZapper:GetReportText(unit_ID)
 	-- Loop through our events and report our sightings.
 	for index, event in ipairs(watchUnit.events) do
 	
-		if index > 2 then
-			break
-		end
+		--if index > 2 then
+		--	break
+		--end
 		-- Info on each sighting.
 		reportText = reportText .."\n\n== Event ".. index .. " =="
 		reportText = reportText .."\nTime: ".. event.time
@@ -649,6 +663,9 @@ function BotZapper:GetReportText(unit_ID)
 	return reportText
 end
 
+---------------------------------------------------------------------------------------------------
+-- Gets the first bot in a list sorted by time.
+---------------------------------------------------------------------------------------------------
 function BotZapper:GetFirstReportableBot()
 	for key,value in spairs(self.reportableBotTable, function(t,a,b) return t[b] > t[a] end) do
 		return key
@@ -656,7 +673,6 @@ function BotZapper:GetFirstReportableBot()
 	
 	return -1
 end
-
 
 ---------------------------------------------------------------------------------------------------
 -- Handles the View bot info button. Opens the report request window with more information.
@@ -674,7 +690,7 @@ function BotZapper:GetTicketType()
 	-- Loop through the ticket types and return the index for the one that matches our desired ticket type.
 	local errorTypes = PlayerTicket_GetErrorTypeList()	
 	for _, currentError in ipairs(errorTypes) do
-		if currentError.localizedText == "Report Player" then
+		if currentError.localizedText == ticketTypeText then
 			return currentError.index
 		end
 	end
@@ -687,7 +703,7 @@ function BotZapper:GetTicketSubType(type)
 	-- Loop through the ticket subtypes and return the index for the one that matches our desired ticket subtype.
 	local subTypes = PlayerTicket_GetSubtype(type)
 	for _, currentError in ipairs(subTypes) do
-		if currentError.localizedText == "Bot / Cheater" then
+		if currentError.localizedText == ticketSubTypeText then
 			return currentError.index
 		end			
 	end
@@ -715,7 +731,7 @@ end
 -----------------------------------------------------------------------------------------------
 -- Returns a vector's length, ignoring the Y
 -----------------------------------------------------------------------------------------------
-function BotZapper:VectorDistance(pointA, pointB)
+function VectorDistance(pointA, pointB)
 
 	-- People from cross faction tend to have a zero'd out position if they're not in line of sight.
 	-- For this reason, we don't want to create a vector to the origin. Ignore their speed while either A or B are origin.
@@ -738,7 +754,7 @@ end
 -----------------------------------------------------------------------------------------------
 -- Returns a string based on a given vector3
 -----------------------------------------------------------------------------------------------
-function BotZapper:PositionString(position)
+function PositionString(position)
 	-- Returns an easy to read position string.
 	return "X:"..math.floor(position.x).."|Y:"..math.floor(position.y).."|Z:"..math.floor(position.z)
 end
@@ -752,22 +768,22 @@ function BotZapper:IsGathering(unit)
 	if unit:IsCasting() then
 		
 		-- Relic Hunter
-		if unit:GetCastName():find("Relic Blaster") ~= nil then
+		if unit:GetCastName():find(tRelicBlasterName[self.currentLanguage]) ~= nil then
 			return true
 		end
 		
 		-- Survivalist
-		if unit:GetCastName():find("Laser Chainsaw") ~= nil then
+		if unit:GetCastName():find(tChainsawName[self.currentLanguage]) ~= nil then
 			return true
 		end
 		
 		-- Mining
-		if unit:GetCastName():find("Laser Pickaxe") ~= nil then
+		if unit:GetCastName():find(tPickAxeName[self.currentLanguage]) ~= nil then
 			return true
 		end
 		
 		-- Farming, but this doesn't seem to work on bots for some reason. I'll leave it in just incase it works some day.
-		if unit:GetTarget() ~= nil and unit:GetTarget():GetType() == "Harvest" then
+		if unit:GetTarget() ~= nil and unit:GetTarget():GetType() == harvestText then
 			return true
 		end
 			
@@ -780,14 +796,14 @@ end
 -----------------------------------------------------------------------------------------------
 -- Interpolate between two colors
 -----------------------------------------------------------------------------------------------
-function BotZapper:LerpColor(colorA, colorB, t)
+function LerpColor(colorA, colorB, t)
 	return ApolloColor.new(colorA.r + (colorB.r - colorA.r) * t, colorA.g + (colorB.g - colorA.g) * t, colorA.b + (colorB.b - colorA.b) * t)
 end
 
 -----------------------------------------------------------------------------------------------
 -- Returns a given table's length
 -----------------------------------------------------------------------------------------------
-function BotZapper:TableLength(tArray)
+function TableLength(tArray)
 	
 	if tArray == nil then
 		return -1
@@ -827,6 +843,172 @@ function spairs(t, order)
         end
     end
 end
+
+-----------------------------------------------------------------------------------------------
+-- Returns the client language
+-----------------------------------------------------------------------------------------------
+function GetClientLanguage()
+
+	local strCancel = Apollo.GetString(1)
+
+	-- German
+	if strCancel == "Abbrechen" then 
+		return "DE"
+	end
+
+	-- French
+	if strCancel == "Annuler" then
+		return "FR"
+	end
+
+	return "EN"
+	
+end
+
+-----------------------------------------------------------------------------------------------
+-- Logs data to the chat window
+-----------------------------------------------------------------------------------------------
+function Log(output)
+	ChatSystemLib.PostOnChannel(ChatSystemLib.ChatChannel_Debug, output, "BotZapper")
+end
+
+---------------------------------------------------------------------------------------------------
+-- BotZapperInfo Functions
+---------------------------------------------------------------------------------------------------
+
+function BotZapper:OnDisplayNearby( wndHandler, wndControl, eMouseButton )	
+	self.nearbyGrid:Show(true, false)
+	self.watchGrid:Show(false, false)
+	self.ignoredGrid:Show(false, false)
+end
+
+function BotZapper:OnDisplayWatch( wndHandler, wndControl, eMouseButton )
+	self.nearbyGrid:Show(false, false)
+	self.watchGrid:Show(true, false)
+	self.ignoredGrid:Show(false, false)
+end
+
+function BotZapper:OnDisplayIgnored( wndHandler, wndControl, eMouseButton )
+	self.nearbyGrid:Show(false, false)
+	self.watchGrid:Show(false, false)
+	self.ignoredGrid:Show(true, false)
+end
+
+
+function BotZapper:OnClickWatched( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
+	
+	if eMouseButton ~= 0 then
+		return
+	end
+	
+	local focusRow = self.watchGrid:GetFocusRow()
+	
+	if focusRow ~= nil then
+		self.watchGrid:SetCurrentRow(0)
+		self:RequestReport(self.watchGrid:GetCellLuaData(focusRow, 1))
+	end
+	
+end
+
+function BotZapper:OnCloseInfoButton( wndHandler, wndControl, eMouseButton )
+	self.wndInfo:Close()
+end
+
+-----------------------------------------------------------------------------------------------
+-- Updates a nearby unit in the nearby grid.
+-----------------------------------------------------------------------------------------------
+function BotZapper:UpdateNearbyUnitInfo(unit_ID)
+
+	local grid = self.nearbyGrid	local rowIndex = -1
+	
+	for i=0, grid:GetRowCount() do
+		if grid:GetCellLuaData(i, 1) == unit_ID then
+			rowIndex = i
+			break
+		end
+	end
+	
+	local unitData = self.nearbyUnits[unit_ID]
+	local unit = GameLib.GetUnitById(unit_ID)
+	
+	if rowIndex == -1 then
+		rowIndex = grid:AddRow(unit:GetName(), "", unit_ID)
+		grid:SetCellLuaData(rowIndex, 1, unit_ID)
+	end
+	
+	 
+	grid:SetCellText(rowIndex, 2, unit:GetLevel())
+	grid:SetCellText(rowIndex, 3, math.floor(unitData.speed))
+	grid:SetCellText(rowIndex, 4, math.floor(unitData.topSpeed))
+	grid:SetCellText(rowIndex, 5, unitData.speedInfractions)
+	if unitData.harvestCount > 0 then 
+		grid:SetCellText(rowIndex, 6, "True")
+	else
+		grid:SetCellText(rowIndex, 6, "False")
+	end
+	grid:SetCellText(rowIndex, 7, math.floor(unitData.totalDistance))
+	
+end
+
+-----------------------------------------------------------------------------------------------
+-- Updates a nearby unit in the nearby grid.
+-----------------------------------------------------------------------------------------------
+function BotZapper:UpdateWatchedUnitInfo(unit_ID)
+
+	local grid = self.watchGrid
+	local rowIndex = -1
+	
+	for i=0, grid:GetRowCount() do
+		if grid:GetCellLuaData(i, 1) == unit_ID then
+			rowIndex = i
+			break
+		end
+	end
+	
+	local watchedData = self.watchedUnits[unit_ID]
+		
+	if rowIndex == -1 then
+		rowIndex = grid:AddRow(watchedData.name, "", unit_ID)
+		grid:SetCellLuaData(rowIndex, 1, unit_ID)
+	end
+	
+	 
+	grid:SetCellText(rowIndex, 2, watchedData.level)
+	grid:SetCellText(rowIndex, 3, math.floor(watchedData.topSpeed))
+	grid:SetCellText(rowIndex, 4, watchedData.speedInfractions)
+	if watchedData.didHarvest then 
+		grid:SetCellText(rowIndex, 5, "True")
+	else
+		grid:SetCellText(rowIndex, 5, "False")
+	end
+	grid:SetCellText(rowIndex, 6, watchedData.suspicion)
+	grid:SetCellText(rowIndex, 7, watchedData.eventCount)
+	
+end
+
+function BotZapper:UpdateIgnoredInfo(unit_ID)
+
+	local grid = self.ignoredGrid
+	local rowIndex = -1
+	
+	for i=0, grid:GetRowCount() do
+		if grid:GetCellLuaData(i, 1) == unit_ID then
+			rowIndex = i
+			break
+		end
+	end
+	
+	local ignoredData = self.ignoredUnits[unit_ID]
+
+	if rowIndex == -1 then
+		rowIndex = grid:AddRow(ignoredData.name, "", unit_ID)
+		grid:SetCellLuaData(rowIndex, 1, unit_ID)
+	end
+	
+	grid:SetCellText(rowIndex, 2, ignoredData.action)
+
+end
+
 
 -----------------------------------------------------------------------------------------------
 -- BotZapper Instance
