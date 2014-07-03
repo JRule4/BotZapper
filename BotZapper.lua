@@ -49,7 +49,6 @@ local tFactions =
 -- Zone level limits for determining if a player is underleveled
 local tZoneLimit = 
 {
-<<<<<<< HEAD
 	[GameLib.MapZone.Whitevale] 		= 22,
 	[75]			 					= 29, --Farside Biodome 3
 	[75]			 					= 29, --Farside Biodome 4
@@ -59,16 +58,6 @@ local tZoneLimit =
 	[GameLib.MapZone.Grimvault] 		= 46,
 	[GameLib.MapZone.WesternGrimvault] 	= 46,
 	[GameLib.MapZone.NorthernGrimvault] = 50,
-=======
-	[GameLib.MapZone.Whitevale] 		= { level = 22 },
-	[75]			 					= { level = 29 }, --Farside Biodome 3
-	[75]			 					= { level = 29 }, --Farside Biodome 4
-	[28]			 					= { level = 32 }, --Farside Moon
-	[GameLib.MapZone.Wilderrun] 		= { level = 35 },
-	[GameLib.MapZone.Malgrave] 			= { level = 40 },
-	[GameLib.MapZone.Grimvault] 		= { level = 46 },
-	[GameLib.MapZone.WesternGrimvault] 	= { level = 46 },
->>>>>>> origin/master
 }
 
 local tPickAxeName =
@@ -471,7 +460,7 @@ function BotZapper:UpdateUnit(unit)
 	local unitPosition = unit:GetPosition()
 	
 	-- Ignore mounted units... What bots use mounts? Zero.
-	--if unit:IsMounted() == false then
+	if unit:IsMounted() == false then
 		local distance = VectorDistance(unitData.lastPos, unitPosition)
 		unitData.speed = distance / self.deltaTime
 		unitData.totalDistance = unitData.totalDistance + distance
@@ -488,7 +477,7 @@ function BotZapper:UpdateUnit(unit)
 			unitData.harvestCount = unitData.harvestCount + 1
 		end
 		
-	--end
+	end
 
 	-- Update positional data for next update.
 	self.nearbyUnits[unit_ID].lastPos = unitPosition;
