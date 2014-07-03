@@ -49,6 +49,7 @@ local tFactions =
 -- Zone level limits for determining if a player is underleveled
 local tZoneLimit = 
 {
+<<<<<<< HEAD
 	[GameLib.MapZone.Whitevale] 		= 22,
 	[75]			 					= 29, --Farside Biodome 3
 	[75]			 					= 29, --Farside Biodome 4
@@ -58,6 +59,16 @@ local tZoneLimit =
 	[GameLib.MapZone.Grimvault] 		= 46,
 	[GameLib.MapZone.WesternGrimvault] 	= 46,
 	[GameLib.MapZone.NorthernGrimvault] = 50,
+=======
+	[GameLib.MapZone.Whitevale] 		= { level = 22 },
+	[75]			 					= { level = 29 }, --Farside Biodome 3
+	[75]			 					= { level = 29 }, --Farside Biodome 4
+	[28]			 					= { level = 32 }, --Farside Moon
+	[GameLib.MapZone.Wilderrun] 		= { level = 35 },
+	[GameLib.MapZone.Malgrave] 			= { level = 40 },
+	[GameLib.MapZone.Grimvault] 		= { level = 46 },
+	[GameLib.MapZone.WesternGrimvault] 	= { level = 46 },
+>>>>>>> origin/master
 }
 
 local tPickAxeName =
