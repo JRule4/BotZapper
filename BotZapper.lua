@@ -116,7 +116,7 @@ function BotZapper:Init()
 	self.playerUnit = nil
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
-	self.ignoredUnits = { [GameLib.GetPlayerUnit():GetId()] = {GameLib.GetPlayerUnit():GetName(), action = "self"} }
+	self.ignoredUnits = {}
 	self.reportableBotTable = {}
 	self.currentTime = GameLib.GetGameTime()
 	self.deltaTime = 0
@@ -195,6 +195,8 @@ function BotZapper:OnDocLoaded()
 		Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
 		
 		updateTimer = ApolloTimer.Create(.1, true, "OnTimerRefresh", self)
+		
+		self.ignoredUnits[GameLib.GetPlayerUnit():GetId()] = {GameLib.GetPlayerUnit():GetName(), action = "self"}
 	end
 end
 
