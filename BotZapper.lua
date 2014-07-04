@@ -116,7 +116,7 @@ function BotZapper:Init()
 	self.playerUnit = nil
 	self.nearbyUnits = {}
 	self.watchedUnits = {}
-	self.ignoredUnits = {}
+	self.ignoredUnits = { [GameLib.GetPlayerUnit():GetId()] = {GameLib.GetPlayerUnit():GetName(), action = "self"} }
 	self.reportableBotTable = {}
 	self.currentTime = GameLib.GetGameTime()
 	self.deltaTime = 0
