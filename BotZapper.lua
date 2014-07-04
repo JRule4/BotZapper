@@ -548,7 +548,7 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID, true))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID]:GetName(), action = "Reported" }
+	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Reported" }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
