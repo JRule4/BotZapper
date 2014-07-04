@@ -60,6 +60,7 @@ local tZoneLimit =
 	[GameLib.MapZone.NorthernGrimvault] = 50,
 }
 
+-- Names for pickaxes, not 100% sure for french and german.
 local tPickAxeName =
 {
 	["EN"] = "Laser Pickaxe",
@@ -67,6 +68,7 @@ local tPickAxeName =
 	["FR"] = "Extracto-laser",
 }
 
+-- Names for chainsaws, not 100% sure for french and german.
 local tChainsawName =
 {
 	["EN"] = "Laser Chainsaw",
@@ -74,6 +76,7 @@ local tChainsawName =
 	["FR"] = "Tronçonneuse-laser",
 }
 
+-- Names for relic blasters, not 100% sure for french and german.
 local tRelicBlasterName =
 {
 	["EN"] = "Relic Blaster",
@@ -103,6 +106,8 @@ function BotZapper:Init()
 	local strConfigureButtonText = ""
 	local tDependencies = {}
 	
+	self.currentLanguage= GetClientLanguage()
+	
 	-- Get the ticket types for reporting a player bot
 	self.ticketType = self:GetTicketType()
 	self.ticketSubType = self:GetTicketSubType(self.ticketType)
@@ -117,8 +122,6 @@ function BotZapper:Init()
 	self.deltaTime = 0
 	self.enabled = true
 	self.reportDisplayID = -1
-	
-	self.currentLanguage= GetClientLanguage()
 		
 	
     Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)	
@@ -154,6 +157,7 @@ function BotZapper:OnDocLoaded()
 		
 		self.wndInfo = Apollo.LoadForm(self.xmlDoc, "BotZapperInfo", nil, self)
 		
+		--Setup all the gui objects we need to access later.
 		self.toastButton = self.wndBotToast:FindChild("Button")
 		
 		self.infoTextBox = self.wndReportRequest:FindChild("InfoBox")
@@ -165,6 +169,22 @@ function BotZapper:OnDocLoaded()
 		self.nearbyButton = self.wndInfo:FindChild("NearbyButton")
 		self.watchingButton = self.wndInfo:FindChild("WatchingButton")
 		self.ignoredButton = self.wndInfo:FindChild("IgnoredButton")
+		
+		local redFlagsText = ""
+		redFlagsText = redFlagsText .. "Running = 8m/s"
+		redFlagsText = redFlagsText .. "\nSprinting = 12m/s"
+		redFlagsText = redFlagsText .. "\nDetect Speed = 150m/s"
+		redFlagsText = redFlagsText .. "\n\nRed Flags:"
+		redFlagsText = redFlagsText .. "\n* Strange Name"
+		redFlagsText = redFlagsText .. "\n* Underleveled for zone"
+		redFlagsText = redFlagsText .. "\n* No Authenticator"
+		redFlagsText = redFlagsText .. "\n* Gathering"
+		redFlagsText = redFlagsText .. "\n* No Housing Buff"
+		redFlagsText = redFlagsText .. "\n* High speed & infractions"
+		redFlagsText = redFlagsText .. "\n\nDon't report players unless\nyou're sure that they are\na bot. If you're unsure,\npress 'Gather More Info'"
+		
+		local redFlags = self.wndInfo:FindChild("RedFlags")
+		redFlags:SetText(redFlagsText)
 		
 		-- Hide all windows by default.
 		self.wndReportRequest:Show(false, true)
@@ -427,6 +447,7 @@ function BotZapper:OnTimerRefresh()
 	self.deltaTime = currentTime - self.currentTime 
 	self.currentTime = currentTime
 	
+	-- Button flash
 	if self.wndBotToast:IsShown() then
 		self.toastButton:SetBGColor(LerpColor(whiteColor, greenColor, (math.sin(self.currentTime*5) + 1) / 2))
 	end
@@ -503,7 +524,7 @@ end
 function BotZapper:RequestReport(unit_ID)
 	
 	--Open up the request report screen and fill out the text.
-	self.infoTextBox:SetText(self:GetReportText(unit_ID))
+	self.infoTextBox:SetText(self:GetReportText(unit_ID, false))
 	self.reportDisplayID = unit_ID
 	
 	self.wndReportRequest:Invoke()
@@ -523,11 +544,11 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 		return
 	end
 	
-	PlayerTicketDialog_Report(self.ticketType, self.ticketSubType, self:GetReportText(unit_ID))
-	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID))-- DEBUG
+	PlayerTicketDialog_Report(self.ticketType, self.ticketSubType, self:GetReportText(unit_ID, true))
+	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID, true))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Reported" }
+	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID]:GetName(), action = "Reported" }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
@@ -606,7 +627,7 @@ end
 ---------------------------------------------------------------------------------------------------
 -- Generates and returns a report text blob based on the unit ID
 ---------------------------------------------------------------------------------------------------
-function BotZapper:GetReportText(unit_ID)
+function BotZapper:GetReportText(unit_ID, forOfficialReport)
 	local reportText = ""
 	local watchUnit = self.watchedUnits[unit_ID]
 	
@@ -640,9 +661,9 @@ function BotZapper:GetReportText(unit_ID)
 	-- Loop through our events and report our sightings.
 	for index, event in ipairs(watchUnit.events) do
 	
-		--if index > 2 then
-		--	break
-		--end
+		if forOfficialReport and index > 2 then
+			break
+		end
 		-- Info on each sighting.
 		reportText = reportText .."\n\n== Event ".. index .. " =="
 		reportText = reportText .."\nTime: ".. event.time
@@ -921,6 +942,7 @@ function BotZapper:UpdateNearbyUnitInfo(unit_ID)
 
 	local grid = self.nearbyGrid	local rowIndex = -1
 	
+	-- Find the proper row.
 	for i=0, grid:GetRowCount() do
 		if grid:GetCellLuaData(i, 1) == unit_ID then
 			rowIndex = i
@@ -931,12 +953,13 @@ function BotZapper:UpdateNearbyUnitInfo(unit_ID)
 	local unitData = self.nearbyUnits[unit_ID]
 	local unit = GameLib.GetUnitById(unit_ID)
 	
+	-- If the row dones't exist, make one.
 	if rowIndex == -1 then
 		rowIndex = grid:AddRow(unit:GetName(), "", unit_ID)
 		grid:SetCellLuaData(rowIndex, 1, unit_ID)
 	end
 	
-	 
+	-- Update row data
 	grid:SetCellText(rowIndex, 2, unit:GetLevel())
 	grid:SetCellText(rowIndex, 3, math.floor(unitData.speed))
 	grid:SetCellText(rowIndex, 4, math.floor(unitData.topSpeed))
@@ -958,6 +981,7 @@ function BotZapper:UpdateWatchedUnitInfo(unit_ID)
 	local grid = self.watchGrid
 	local rowIndex = -1
 	
+	-- Find the proper row.
 	for i=0, grid:GetRowCount() do
 		if grid:GetCellLuaData(i, 1) == unit_ID then
 			rowIndex = i
@@ -966,13 +990,14 @@ function BotZapper:UpdateWatchedUnitInfo(unit_ID)
 	end
 	
 	local watchedData = self.watchedUnits[unit_ID]
-		
+	
+	-- If the row dones't exist, make one.	
 	if rowIndex == -1 then
 		rowIndex = grid:AddRow(watchedData.name, "", unit_ID)
 		grid:SetCellLuaData(rowIndex, 1, unit_ID)
 	end
 	
-	 
+	-- Update row data 
 	grid:SetCellText(rowIndex, 2, watchedData.level)
 	grid:SetCellText(rowIndex, 3, math.floor(watchedData.topSpeed))
 	grid:SetCellText(rowIndex, 4, watchedData.speedInfractions)
@@ -991,6 +1016,7 @@ function BotZapper:UpdateIgnoredInfo(unit_ID)
 	local grid = self.ignoredGrid
 	local rowIndex = -1
 	
+	-- Find the proper row.
 	for i=0, grid:GetRowCount() do
 		if grid:GetCellLuaData(i, 1) == unit_ID then
 			rowIndex = i
@@ -1000,11 +1026,13 @@ function BotZapper:UpdateIgnoredInfo(unit_ID)
 	
 	local ignoredData = self.ignoredUnits[unit_ID]
 
+	-- If the row dones't exist, make one.
 	if rowIndex == -1 then
 		rowIndex = grid:AddRow(ignoredData.name, "", unit_ID)
 		grid:SetCellLuaData(rowIndex, 1, unit_ID)
 	end
 	
+	-- Update row data
 	grid:SetCellText(rowIndex, 2, ignoredData.action)
 
 end
