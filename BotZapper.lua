@@ -19,11 +19,13 @@ local BotZapper = {}
 -----------------------------------------------------------------------------------------------
 -- Constants
 -----------------------------------------------------------------------------------------------
+local bzVersion = 0.7
 local updateTimer = nil
 local infractionSpeed = 150
 local infractionLimit = 4
 local reportableSuspicion = 5
 local reinsertionTimer = 15
+local expireTimer = (60*60*24)*7
 
 local whiteColor = ApolloColor.new("white")
 local greenColor = ApolloColor.new("green")
@@ -122,12 +124,14 @@ function BotZapper:Init()
 	self.deltaTime = 0
 	self.enabled = true
 	self.reportDisplayID = -1
-		
 	
-    Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)	
+	self.chatVerbosity = 1
+	
+    Apollo.RegisterAddon(self, bHasConfigureFunction, strConfigureButtonText, tDependencies)
 	
 	Apollo.RegisterEventHandler("UnitCreated", 		"OnUnitCreated", self)		
 	Apollo.RegisterEventHandler("UnitDestroyed", 	"OnUnitDestroyed", self)
+	Apollo.RegisterEventHandler("ChangeWorld",		"OnChangeWorld", self)
 end
 
 -----------------------------------------------------------------------------------------------
@@ -138,10 +142,55 @@ function BotZapper:OnLoad()
     -- load our form file
 	self.xmlDoc = XmlDoc.CreateFromFile("BotZapper.xml")
 	self.xmlDoc:RegisterCallback("OnDocLoaded", self)
-
-
-	Apollo.RegisterEventHandler("ChangeWorld",		"OnChangeWorld", self)
 	
+end
+
+-----------------------------------------------------------------------------------------------
+-- Serialization
+-----------------------------------------------------------------------------------------------
+function BotZapper:OnSave(eType)
+	--if eLevel ~= GameLib.CodeEnumAddonSaveLevel.Character then
+	--	return
+	--end
+	
+	local tSaveData = 
+	{
+		version = bzVersion,
+		verbosity = self.chatVerbosity,
+		
+		ignoredUnits = {}
+	}
+	
+	copyTable(self.ignoredUnits,tSaveData.ignoredUnits)
+	
+	return tSaveData
+end
+
+-----------------------------------------------------------------------------------------------
+-- Deserialization
+-----------------------------------------------------------------------------------------------
+function BotZapper:OnRestore(eType, tSavedData)
+
+	if tSavedData.version == bzVersion then
+	
+		self.chatVerbosity = tSavedData.verbosity
+		
+		if tSavedData.ignoredUnits ~= nil then
+			copyTable(tSavedData.ignoredUnits, self.ignoredUnits)
+		else
+			self.ignoredUnits = {}
+		end
+		
+		for k,v in pairs(self.ignoredUnits) do
+			if v.expires <= os.time() then 
+				self.ignoredUnits[k] = nil
+			else
+				self:UpdateIgnoredInfo(k)
+			end
+		end
+	
+	end
+
 end
 
 -----------------------------------------------------------------------------------------------
@@ -170,6 +219,8 @@ function BotZapper:OnDocLoaded()
 		self.watchingButton = self.wndInfo:FindChild("WatchingButton")
 		self.ignoredButton = self.wndInfo:FindChild("IgnoredButton")
 		
+		self.silentToggle = self.wndInfo:FindChild("SilentToggle")
+		
 		local redFlagsText = ""
 		redFlagsText = redFlagsText .. "Running = 8m/s"
 		redFlagsText = redFlagsText .. "\nSprinting = 12m/s"
@@ -195,11 +246,12 @@ function BotZapper:OnDocLoaded()
 		Apollo.RegisterSlashCommand("bz", "OnBotZapperOn", self)
 		
 		updateTimer = ApolloTimer.Create(.1, true, "OnTimerRefresh", self)
-		
-		self.ignoredUnits[GameLib.GetPlayerUnit():GetId()] = {GameLib.GetPlayerUnit():GetName(), action = "self"}
 	end
 end
 
+-----------------------------------------------------------------------------------------------
+-- Disables the bulk of the addon internally.
+-----------------------------------------------------------------------------------------------
 function BotZapper:Disable()
 
 	if self.enabled == false then
@@ -269,8 +321,9 @@ function BotZapper:OnUnitCreated(unit)
 	end
 	
 	-- Automatically add friends and groupmembers to the ignore list.
-	if unit:IsAccountFriend() or unit:IsFriend() or unit:IsInYourGroup() then
-		self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Friend" }
+	if unit:IsAccountFriend() or unit:IsFriend() or unit:IsInYourGroup() or unit:IsThePlayer() then
+		self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Friend", expires = (os.time()+expireTimer) }
+		self:UpdateIgnoredInfo(unit_ID)
 		return
 	end	
 	
@@ -413,12 +466,13 @@ function BotZapper:OnUnitDestroyed(unit)
 		-- We've reched the point that which we will report this player.
 		if self.watchedUnits[unit_ID].suspicion >= reportableSuspicion then
 		
-			 -- DEBUG
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. "========", "BotZapper")
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " Buffs = "..self:GetBuffNames(unit:GetBuffs().arBeneficial), "BotZapper" )
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " topSpeed = "..unitData.topSpeed, "BotZapper" )
-			ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Bot Detected: " .. unit:GetName() .. " speedInfractions = "..unitData.speedInfractions, "BotZapper" )	
-			-- DEBUG	
+
+			if self.chatVerbosity == 1 then
+				ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_System, "Bot Detected: " .. unit:GetName() .. "========", "BotZapper")
+				ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_System, unit:GetName() .. " Buffs = "..self:GetBuffNames(unit:GetBuffs().arBeneficial), "BotZapper" )
+				ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_System, unit:GetName() .. " topSpeed = "..unitData.topSpeed, "BotZapper" )
+				ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_System, unit:GetName() .. " speedInfractions = "..unitData.speedInfractions, "BotZapper" )	
+			end
 		
 			--Add them to the table
 			if self.reportableBotTable[unit_ID] == nil then
@@ -481,9 +535,8 @@ function BotZapper:UpdateUnit(unit)
 	end
 	
 	local unitPosition = unit:GetPosition()
-	
 	-- Ignore mounted units... What bots use mounts? Zero.
-	if unit:IsMounted() == false then
+	if unit:IsMounted() == false and unit:IsInVehicle() == false then
 		local distance = VectorDistance(unitData.lastPos, unitPosition)
 		unitData.speed = distance / self.deltaTime
 		unitData.totalDistance = unitData.totalDistance + distance
@@ -518,6 +571,12 @@ function BotZapper:OnBotZapperOn()
 	self.nearbyButton:SetCheck(true)
 	self.watchingButton:SetCheck(false)
 	self.ignoredButton:SetCheck(false)
+	
+	self.silentToggle:SetCheck(self.chatVerbosity == 0)
+	
+	for k,v in pairs(self.ignoredUnits) do
+		self:UpdateIgnoredInfo(k)
+	end
 end
 
 -----------------------------------------------------------------------------------------------
@@ -542,6 +601,7 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		Log("Failed to retrieve unitID")
 		self.wndReportRequest:Close()
 		return
 	end
@@ -550,7 +610,7 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID, true))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Reported" }
+	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Reported", expires = (os.time()+expireTimer) }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
@@ -578,12 +638,13 @@ function BotZapper:OnIgnoreUnitButton( wndHandler, wndControl, eMouseButton )
 	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		Log("Failed to retrieve unitID")
 		self.wndReportRequest:Close()
 		return
 	end
 		
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Ignored" }
+	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Ignored", expires = (os.time()+expireTimer) }
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
@@ -612,6 +673,7 @@ function BotZapper:OnWaitReportButton( wndHandler, wndControl, eMouseButton )
 	local unit_ID = self.reportDisplayID
 	
 	if unit_ID == -1 then
+		Log("Failed to retrieve unitID")
 		self.wndReportRequest:Close()
 		return
 	end
@@ -624,6 +686,8 @@ function BotZapper:OnWaitReportButton( wndHandler, wndControl, eMouseButton )
 	if self:GetFirstReportableBot() ~= -1 then
 		self.wndBotToast:Invoke()
 	end
+	
+	self.reportDisplayID = -1
 end
 
 ---------------------------------------------------------------------------------------------------
@@ -804,9 +868,9 @@ function BotZapper:IsGathering(unit)
 		if unit:GetCastName():find(tPickAxeName[self.currentLanguage]) ~= nil then
 			return true
 		end
-		
+			
 		-- Farming, but this doesn't seem to work on bots for some reason. I'll leave it in just incase it works some day.
-		if unit:GetTarget() ~= nil and unit:GetTarget():GetType() == harvestText then
+		if unit:GetTarget() ~= nil and unit:GetTarget():CanBeHarvestedBy(unit) then
 			return true
 		end
 			
@@ -889,6 +953,23 @@ function GetClientLanguage()
 end
 
 -----------------------------------------------------------------------------------------------
+-- Simple shallow copy for copying defaults
+-----------------------------------------------------------------------------------------------
+function copyTable(src, dest)
+	if type(dest) ~= "table" then dest = {} end
+	if type(src) == "table" then
+		for k,v in pairs(src) do
+			if type(v) == "table" then
+				-- try to index the key first so that the metatable creates the defaults, if set, and use that table
+				v = copyTable(v, dest[k])
+			end
+			dest[k] = v
+		end
+	end
+	return dest
+end
+
+-----------------------------------------------------------------------------------------------
 -- Logs data to the chat window
 -----------------------------------------------------------------------------------------------
 function Log(output)
@@ -935,6 +1016,14 @@ end
 
 function BotZapper:OnCloseInfoButton( wndHandler, wndControl, eMouseButton )
 	self.wndInfo:Close()
+end
+
+function BotZapper:OnSilentCheck( wndHandler, wndControl, eMouseButton )
+	self.chatVerbosity = 0
+end
+
+function BotZapper:OnSilentUncheck( wndHandler, wndControl, eMouseButton )
+	self.chatVerbosity = 1
 end
 
 -----------------------------------------------------------------------------------------------
@@ -1013,7 +1102,13 @@ function BotZapper:UpdateWatchedUnitInfo(unit_ID)
 	
 end
 
+-----------------------------------------------------------------------------------------------
+-- Updates an ignored grid item.
+-----------------------------------------------------------------------------------------------
 function BotZapper:UpdateIgnoredInfo(unit_ID)
+	if self.ignoredGrid == nil then
+		return
+	end
 
 	local grid = self.ignoredGrid
 	local rowIndex = -1
@@ -1036,6 +1131,7 @@ function BotZapper:UpdateIgnoredInfo(unit_ID)
 	
 	-- Update row data
 	grid:SetCellText(rowIndex, 2, ignoredData.action)
+	grid:SetCellText(rowIndex, 3, os.date("%c", ignoredData.expires))
 
 end
 
