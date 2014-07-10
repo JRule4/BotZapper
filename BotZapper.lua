@@ -19,7 +19,7 @@ local BotZapper = {}
 -----------------------------------------------------------------------------------------------
 -- Constants
 -----------------------------------------------------------------------------------------------
-local bzVersion = 0.7
+local bzVersion = 0.71
 local updateTimer = nil
 local infractionSpeed = 150
 local infractionLimit = 4
@@ -189,6 +189,10 @@ function BotZapper:OnRestore(eType, tSavedData)
 			end
 		end
 	
+	elseif tSavedData.version == 0.7 then
+		
+		self.chatVerbosity = tSavedData.verbosity
+	
 	end
 
 end
@@ -312,20 +316,25 @@ function BotZapper:OnUnitCreated(unit)
 	if self.enabled == false or unit:GetType() ~= "Player" then
 		return
 	end	
-	
-	local unit_ID = unit:GetId()
-	
+		
 	-- If they exist in the ignore table, ignore them.
-	if self.ignoredUnits[unit_ID] ~= nil then
+	if self.ignoredUnits[unit:GetName()] ~= nil then
 		return
 	end
 	
+	local unit_ID = unit:GetId()
+	
 	-- Automatically add friends and groupmembers to the ignore list.
-	if unit:IsAccountFriend() or unit:IsFriend() or unit:IsInYourGroup() or unit:IsThePlayer() then
-		self.ignoredUnits[unit_ID] = { name = unit:GetName(), action = "Friend", expires = (os.time()+expireTimer) }
-		self:UpdateIgnoredInfo(unit_ID)
+	if unit:IsAccountFriend() or unit:IsFriend() or unit:IsInYourGroup() then
+		self.ignoredUnits[unit:GetName()] = { action = "Friend", expires = (os.time()+expireTimer) }
+		self:UpdateIgnoredInfo(unit:GetName())
 		return
-	end	
+	end
+	
+	if unit:IsThePlayer() then
+		self.ignoredUnits[unit:GetName()] = { action = "Self", expires = (os.time()+expireTimer) }
+		self:UpdateIgnoredInfo(unit:GetName())
+	end
 	
 	if self.nearbyGrid ~= nil then
 		self.nearbyGrid:AddRow(unit:GetName(), "", unit_ID)
@@ -359,7 +368,7 @@ function BotZapper:OnUnitDestroyed(unit)
 	self.nearbyGrid:DeleteRowsByData(unit_ID)
 	
 	-- If they exist in the ignore table, ignore them.
-	if self.ignoredUnits[unit_ID] ~= nil then
+	if self.ignoredUnits[unit:GetName()] ~= nil then
 		return
 	end
 	
@@ -393,13 +402,13 @@ function BotZapper:OnUnitDestroyed(unit)
 		
 		-- If the player is outside of the level range, they're super suspicious. 
 		if tZoneLimit[GameLib.GetCurrentZoneMap().id] ~= nil and (tZoneLimit[GameLib.GetCurrentZoneMap().id] - unit:GetLevel()) >= 5 then
-			suspicionLevel = suspicionLevel + 2
+			suspicionLevel = suspicionLevel + 3
 			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Underleveld for the zone, added suspicion "..unit:GetLevel())-- DEBUG
 		end
 		
 		-- If they're harvesting, they're suspicious. But remember, this only gets hit if they've also been speeding.
 		if unitData.harvestCount > 0 then
-			suspicionLevel = suspicionLevel + 1
+			suspicionLevel = suspicionLevel + 2
 			--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Did harvest, added suspicion")-- DEBUG
 		end
 		
@@ -521,7 +530,6 @@ end
 -- Updates our nearby units
 -----------------------------------------------------------------------------------------------
 function BotZapper:UpdateUnit(unit)
-
 	local unit_ID = unit:GetId()
 	local unitData = self.nearbyUnits[unit_ID]	
 	
@@ -610,13 +618,13 @@ function BotZapper:OnGenerateReportButton( wndHandler, wndControl, eMouseButton 
 	--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, self:GetReportText(unit_ID, true))-- DEBUG
 	
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Reported", expires = (os.time()+expireTimer) }
+	self.ignoredUnits[self.watchedUnits[unit_ID].name] = { action = "Reported", expires = (os.time()+expireTimer) }
+	self:UpdateIgnoredInfo(self.watchedUnits[unit_ID].name)
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
 	self.nearbyGrid:DeleteRowsByData(unit_ID)
 	self.watchGrid:DeleteRowsByData(unit_ID)
-	self:UpdateIgnoredInfo(unit_ID)
 	self.wndReportRequest:Close()
 	
 	-- If we have more in the table, popup a new window.
@@ -644,13 +652,13 @@ function BotZapper:OnIgnoreUnitButton( wndHandler, wndControl, eMouseButton )
 	end
 		
 	-- Add them to the ignored units. Clear them out from any other tables.
-	self.ignoredUnits[unit_ID] = { name = self.watchedUnits[unit_ID].name, action = "Ignored", expires = (os.time()+expireTimer) }
+	self.ignoredUnits[self.watchedUnits[unit_ID].name] = { action = "Ignored", expires = (os.time()+expireTimer) }
+	self:UpdateIgnoredInfo(self.watchedUnits[unit_ID].name)
 	self.watchedUnits[unit_ID] = nil
 	self.nearbyUnits[unit_ID] = nil
 	self.reportableBotTable[unit_ID] = nil
 	self.nearbyGrid:DeleteRowsByData(unit_ID)
 	self.watchGrid:DeleteRowsByData(unit_ID)
-	self:UpdateIgnoredInfo(unit_ID)
 	self.wndReportRequest:Close()
 	
 	-- If we have more in the table, popup a new window.
@@ -699,7 +707,6 @@ function BotZapper:GetReportText(unit_ID, forOfficialReport)
 	
 	--Player information.
 	reportText = reportText .."Player: ".. watchUnit.name
-	reportText = reportText .."\nUnitID: ".. watchUnit.unitID
 	
 	--We can report if they have an authenticator or not.
 	reportText = reportText .."\nAuthenticator: "
@@ -1105,7 +1112,7 @@ end
 -----------------------------------------------------------------------------------------------
 -- Updates an ignored grid item.
 -----------------------------------------------------------------------------------------------
-function BotZapper:UpdateIgnoredInfo(unit_ID)
+function BotZapper:UpdateIgnoredInfo(unitName)
 	if self.ignoredGrid == nil then
 		return
 	end
@@ -1115,18 +1122,18 @@ function BotZapper:UpdateIgnoredInfo(unit_ID)
 	
 	-- Find the proper row.
 	for i=0, grid:GetRowCount() do
-		if grid:GetCellLuaData(i, 1) == unit_ID then
+		if grid:GetCellLuaData(i, 1) == unitName then
 			rowIndex = i
 			break
 		end
 	end
 	
-	local ignoredData = self.ignoredUnits[unit_ID]
+	local ignoredData = self.ignoredUnits[unitName]
 
 	-- If the row dones't exist, make one.
 	if rowIndex == -1 then
-		rowIndex = grid:AddRow(ignoredData.name, "", unit_ID)
-		grid:SetCellLuaData(rowIndex, 1, unit_ID)
+		rowIndex = grid:AddRow(unitName, "", unitName)
+		grid:SetCellLuaData(rowIndex, 1, unitName)
 	end
 	
 	-- Update row data
