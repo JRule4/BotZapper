@@ -289,14 +289,17 @@ function BotZapper:OnChangeWorld()
 end
 
 function BotZapper:UpdateZone()
+
 	--Determine if we should run this addon or not.
 	local zoneInfo = GameLib.GetCurrentZoneMap()
-	
 	if zoneInfo == nil then
 		--if self.enabled == true then ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "ZoneInfo is Null") end
 		self:Disable()	
 	elseif zoneInfo.id == GameLib.MapZone.Illium or zoneInfo.id == GameLib.MapZone.Thayd then
 		--if self.enabled == true then ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "IsInTown is True") end
+		self:Disable()
+	elseif GetCurrentSubZoneName() == "Fist of Azrion" then
+		--if self.enabled == true then ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "Entered Widowmaker") end
 		self:Disable()
 	elseif self.enabled == false then
 		--ChatSystemLib.PostOnChannel( ChatSystemLib.ChatChannel_Debug, "self.enabled = true")
@@ -573,6 +576,7 @@ end
 -- on SlashCommand "/bz"
 -----------------------------------------------------------------------------------------------
 function BotZapper:OnBotZapperOn()
+	
 	self.wndInfo:Invoke()
 	self:OnDisplayNearby()
 
